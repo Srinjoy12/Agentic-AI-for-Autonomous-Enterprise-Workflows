@@ -1,6 +1,6 @@
 'use client';
 import React, { useEffect, useState, useRef } from 'react';
-import { Bot, CheckCircle, AlertTriangle, ShieldCheck, FileSearch, Building2, User } from 'lucide-react';
+import { Bot, CheckCircle, AlertTriangle, ShieldCheck, FileSearch, Building2, User, Download } from 'lucide-react';
 import ExtractedDataCard from '@/components/ExtractedDataCard';
 
 type StepStatus = 'pending' | 'active' | 'completed' | 'blocked';
@@ -13,7 +13,7 @@ type AgentStep = {
   logs: string[];
 };
 
-export default function AgentAuditTrail({ documentName, onRequireApproval, triggerResume }: { documentName: string, onRequireApproval: () => void, triggerResume: boolean }) {
+export default function AgentAuditTrail({ documentName, fileContent, fileBase64, onRequireApproval, triggerResume }: { documentName: string, fileContent: string, fileBase64: string, onRequireApproval: (reasons: string[]) => void, triggerResume: boolean }) {
   const [steps, setSteps] = useState<AgentStep[]>([
     {
       id: 'extract',
@@ -82,14 +82,21 @@ export default function AgentAuditTrail({ documentName, onRequireApproval, trigg
     if (currentStepIndex === 0 && !fetchedRef.current) {
         fetchedRef.current = true;
         
+        const contentPreview = fileBase64.length > 100 
+          ? `Uploading document directly to Gemini multimodal API...`
+          : fileContent.length > 10 
+          ? `Sending ${fileContent.length} chars of document text...`
+          : 'Analyzing document by filename...';
+        
         setSteps(prev => prev.map((s, i) => i === 0 ? { 
             ...s, 
-            logs: ['> Sending request to Gemini 2.5 backend...']
+            logs: [`> ${contentPreview}`, '> Sending request to Gemini 2.5 Flash...']
         } : s));
 
         fetch('/api/analyze-vendor', {
             method: 'POST',
-            body: JSON.stringify({ documentName })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ documentName, fileContent, fileBase64 })
         })
         .then(res => res.json())
         .then(data => {
@@ -106,7 +113,7 @@ export default function AgentAuditTrail({ documentName, onRequireApproval, trigg
                        `> Process completely halted.`
                     ]
                 } : s));
-                return; // Stop the execution sequence right here
+                return;
             }
 
             setSteps(prev => prev.map((s, i) => i === 0 ? { 
@@ -123,7 +130,7 @@ export default function AgentAuditTrail({ documentName, onRequireApproval, trigg
         })
         .catch(err => {
             setSteps(prev => prev.map((s, i) => i === 0 ? { 
-                ...s, status: 'completed', logs: ['> LLM Extraction failed/Network error.', '> Proceeding with fallback mode.']
+                ...s, status: 'completed', logs: [...s.logs, '> LLM Extraction failed/Network error.', '> Proceeding with fallback mode.']
             } : s));
             setTimeout(() => setCurrentStepIndex(1), 1500);
         });
@@ -138,16 +145,17 @@ export default function AgentAuditTrail({ documentName, onRequireApproval, trigg
         const isHighRisk = analysisResult?.isHighRisk ?? true;
         
         if (isHighRisk) {
+            const reasons = analysisResult?.reasons || ['Unknown risk factor'];
             setSteps(prev => prev.map((s, i) => i === currentStepIndex ? { 
                ...s, 
                status: 'blocked',
                logs: [
                    '> WARNING: LLM flagged vendor as High Risk.', 
-                   `> Specific Reason: ${analysisResult?.reasons?.[0] || 'Unknown Jurisdiction'}`, 
+                   ...reasons.map((r: string) => `> Reason: ${r}`),
                    '> Pausing for Human Authorization.'
                ]
             } : s));
-            onRequireApproval();
+            onRequireApproval(reasons);
             return;
         }
       }
@@ -167,7 +175,47 @@ export default function AgentAuditTrail({ documentName, onRequireApproval, trigg
     }, 2000);
 
     return () => clearTimeout(simTimer);
-  }, [currentStepIndex, onRequireApproval, triggerResume, analysisResult, documentName]);
+  }, [currentStepIndex, onRequireApproval, triggerResume, analysisResult, documentName, fileContent]);
+
+  // Audit Trail Export
+  const downloadAuditLog = () => {
+    const timestamp = new Date().toISOString();
+    let content = `═══════════════════════════════════════════════════\n`;
+    content += `  AUTOFLOW — AUDIT TRAIL EXPORT\n`;
+    content += `  Generated: ${timestamp}\n`;
+    content += `  Document: ${documentName}\n`;
+    content += `═══════════════════════════════════════════════════\n\n`;
+
+    steps.forEach((step, idx) => {
+      content += `── AGENT ${idx + 1}: ${step.label} ──\n`;
+      content += `   Status: ${step.status.toUpperCase()}\n`;
+      content += `   Description: ${step.description}\n`;
+      if (step.logs.length > 0) {
+        content += `   Logs:\n`;
+        step.logs.forEach(log => {
+          content += `     ${log}\n`;
+        });
+      }
+      content += `\n`;
+    });
+
+    if (analysisResult) {
+      content += `── GEMINI RAW RESPONSE ──\n`;
+      content += JSON.stringify(analysisResult, null, 2) + '\n';
+    }
+
+    content += `\n═══════════════════════════════════════════════════\n`;
+    content += `  END OF AUDIT TRAIL\n`;
+    content += `═══════════════════════════════════════════════════\n`;
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `AutoFlow_Audit_${documentName.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div style={{ display: 'flex', gap: '32px', flexDirection: 'row', alignItems: 'flex-start', marginTop: '24px', width: '100%' }}>
@@ -193,11 +241,36 @@ export default function AgentAuditTrail({ documentName, onRequireApproval, trigg
             <h2 style={{ margin: 0, fontSize: '1.4rem' }}>Live Orchestration</h2>
             <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.9rem' }}>AutoFlow Agent Engine (Gemini 2.5)</p>
           </div>
-          {currentStepIndex >= steps.length && (
-              <div style={{ marginLeft: 'auto', background: 'rgba(74, 222, 128, 0.2)', color: '#4ade80', padding: '6px 12px', borderRadius: '20px', fontSize: '0.875rem', fontWeight: 500 }}>
-                  Workflow Complete
-              </div>
-          )}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+            {currentStepIndex >= steps.length && (
+              <>
+                <button 
+                  onClick={downloadAuditLog}
+                  style={{ 
+                    background: 'rgba(255, 255, 255, 0.1)', 
+                    color: '#e2e8f0', 
+                    padding: '6px 12px', 
+                    borderRadius: '20px', 
+                    fontSize: '0.875rem', 
+                    fontWeight: 500,
+                    border: '1px solid var(--glass-border)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    transition: 'all 0.2s'
+                  }}
+                  onMouseOver={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)'}
+                  onMouseOut={e => e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'}
+                >
+                  <Download size={14} /> Export Audit Log
+                </button>
+                <div style={{ background: 'rgba(74, 222, 128, 0.2)', color: '#4ade80', padding: '6px 12px', borderRadius: '20px', fontSize: '0.875rem', fontWeight: 500 }}>
+                    Workflow Complete
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', position: 'relative', zIndex: 1 }}>
@@ -282,7 +355,7 @@ export default function AgentAuditTrail({ documentName, onRequireApproval, trigg
                       gap: '4px'
                     }}>
                       {step.logs.map((log, i) => (
-                        <div key={i} style={{ display: 'flex', gap: '8px', color: log.includes('WARNING') ? '#ef4444' : (log.includes('EXCEPTION') || log.includes('Resuming')) ? '#eab308' : '#a1a1aa' }}>
+                        <div key={i} style={{ display: 'flex', gap: '8px', color: log.includes('WARNING') || log.includes('CRITICAL') ? '#ef4444' : (log.includes('EXCEPTION') || log.includes('Resuming')) ? '#eab308' : '#a1a1aa' }}>
                           <span>{log}</span>
                         </div>
                       ))}

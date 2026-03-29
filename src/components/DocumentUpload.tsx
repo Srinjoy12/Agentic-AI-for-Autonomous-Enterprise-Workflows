@@ -2,9 +2,12 @@
 import React, { useState, useRef } from 'react';
 import { UploadCloud, FileText, CheckCircle } from 'lucide-react';
 
-export default function DocumentUpload({ onUpload }: { onUpload: (filename: string) => void }) {
+export default function DocumentUpload({ onUpload }: { onUpload: (filename: string, fileContent: string, fileBase64: string) => void }) {
   const [isDragging, setIsDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
+  const [fileContent, setFileContent] = useState<string>('');
+  const [fileBase64, setFileBase64] = useState<string>('');
+  const [isReading, setIsReading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDrag = (e: React.DragEvent) => {
@@ -17,18 +20,58 @@ export default function DocumentUpload({ onUpload }: { onUpload: (filename: stri
     }
   };
 
+  const readFileContent = (selectedFile: File) => {
+    setIsReading(true);
+    const name = selectedFile.name.toLowerCase();
+    const isBinary = name.endsWith('.pdf') || name.endsWith('.docx') || name.endsWith('.doc');
+
+    if (isBinary) {
+      // For PDFs and DOCX: read as base64, server will handle extraction
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const base64 = (e.target?.result as string)?.split(',')[1] || '';
+        setFileBase64(base64);
+        setFileContent('');
+        setIsReading(false);
+      };
+      reader.onerror = () => {
+        setFileContent(`[File: ${selectedFile.name}. Could not read.]`);
+        setIsReading(false);
+      };
+      reader.readAsDataURL(selectedFile);
+    } else {
+      // For text files (.txt, .csv): read as plain text
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = (e.target?.result as string || '').substring(0, 4000);
+        setFileContent(text);
+        setFileBase64('');
+        setIsReading(false);
+      };
+      reader.onerror = () => {
+        setFileContent(`[File: ${selectedFile.name}. Could not read.]`);
+        setIsReading(false);
+      };
+      reader.readAsText(selectedFile);
+    }
+  };
+
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      setFile(e.dataTransfer.files[0]);
+      const f = e.dataTransfer.files[0];
+      setFile(f);
+      readFileContent(f);
     }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
+      const f = e.target.files[0];
+      setFile(f);
+      readFileContent(f);
     }
   };
 
@@ -43,7 +86,7 @@ export default function DocumentUpload({ onUpload }: { onUpload: (filename: stri
             ref={fileInputRef} 
             onChange={handleFileChange} 
             style={{ display: 'none' }} 
-            accept=".pdf,.docx,.doc,image/*"
+            accept=".pdf,.docx,.doc,.txt,.csv,image/*"
           />
           <div 
             onDragEnter={handleDrag}
@@ -68,7 +111,7 @@ export default function DocumentUpload({ onUpload }: { onUpload: (filename: stri
               Click to browse or drag your real document here
             </p>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-              Supports PDF, DOCX, PNG (Max 10MB)
+              Supports PDF, DOCX, TXT, CSV, PNG (Max 10MB)
             </p>
           </div>
         </>
@@ -88,13 +131,18 @@ export default function DocumentUpload({ onUpload }: { onUpload: (filename: stri
           <div style={{ flex: 1 }}>
             <p style={{ fontWeight: 500, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
               {file.name}
-              <CheckCircle size={16} color="#4ade80" />
+              {!isReading && <CheckCircle size={16} color="#4ade80" />}
             </p>
             <p style={{ color: 'var(--text-muted)', fontSize: '0.875rem', margin: 0 }}>
-              {(file.size / 1024).toFixed(2)} KB • Ready for processing
+              {(file.size / 1024).toFixed(2)} KB • {isReading ? 'Reading file...' : 'Ready for processing'}
             </p>
           </div>
-          <button className="btn-primary" onClick={() => onUpload(file.name)}>
+          <button 
+            className="btn-primary" 
+            onClick={() => onUpload(file.name, fileContent, fileBase64)}
+            disabled={isReading}
+            style={isReading ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
+          >
             Begin Autonomous Workflow
           </button>
         </div>

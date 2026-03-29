@@ -16,12 +16,15 @@ export default function Home() {
   const [requiresApproval, setRequiresApproval] = useState(false);
   const [triggerResume, setTriggerResume] = useState(false);
   const [documentName, setDocumentName] = useState("Unknown_Document.pdf");
+  const [fileContent, setFileContent] = useState("");
+  const [fileBase64, setFileBase64] = useState("");
+  const [riskReasons, setRiskReasons] = useState<string[]>([]);
 
   return (
     <main style={{ minHeight: '100vh', padding: '40px', position: 'relative', overflow: 'hidden' }}>
       
       {/* Animated Matrix Background */}
-      <div style={{ position: 'absolute', top: '0px', left: '0px', right: '0px', bottom: '0px', zIndex: 0, opacity: 0.35 }}>
+      <div suppressHydrationWarning style={{ position: 'absolute', top: '0px', left: '0px', right: '0px', bottom: '0px', zIndex: 0, opacity: 0.35 }}>
         <CanvasRevealEffect
           animationSpeed={3}
           colors={[
@@ -49,15 +52,22 @@ export default function Home() {
 
         {!workflowStarted ? (
           <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-             <DocumentUpload onUpload={(filename: string) => {
+             <DocumentUpload onUpload={(filename: string, content: string, base64: string) => {
                setDocumentName(filename);
+               setFileContent(content);
+               setFileBase64(base64);
                setWorkflowStarted(true);
              }} />
           </div>
         ) : (
           <AgentAuditTrail 
             documentName={documentName}
-            onRequireApproval={() => setRequiresApproval(true)}
+            fileContent={fileContent}
+            fileBase64={fileBase64}
+            onRequireApproval={(reasons: string[]) => {
+              setRiskReasons(reasons);
+              setRequiresApproval(true);
+            }}
             triggerResume={triggerResume}
           />
         )}
@@ -65,6 +75,7 @@ export default function Home() {
 
       {requiresApproval && (
         <HumanApprovalModal 
+          riskReasons={riskReasons}
           onApprove={() => {
             setRequiresApproval(false);
             setTriggerResume(true);

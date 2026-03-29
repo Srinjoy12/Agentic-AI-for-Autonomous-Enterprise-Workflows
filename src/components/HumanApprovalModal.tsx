@@ -2,7 +2,7 @@
 import React from 'react';
 import { AlertTriangle, ShieldCheck, XCircle } from 'lucide-react';
 
-export default function HumanApprovalModal({ onApprove, onReject }: { onApprove: () => void, onReject: () => void }) {
+export default function HumanApprovalModal({ riskReasons, onApprove, onReject }: { riskReasons: string[], onApprove: () => void, onReject: () => void }) {
   return (
     <div style={{
       position: 'fixed',
@@ -35,12 +35,22 @@ export default function HumanApprovalModal({ onApprove, onReject }: { onApprove:
           </div>
         </div>
 
-        {/* Details */}
+        {/* Dynamic Risk Factors from Gemini */}
         <div style={{ background: 'rgba(20,20,20,0.5)', borderRadius: '8px', padding: '20px', marginBottom: '24px', border: '1px solid var(--surface-border)' }}>
-          <p style={{ margin: '0 0 12px', fontWeight: 600, color: '#e2e8f0' }}>Risk Factors Detected:</p>
+          <p style={{ margin: '0 0 12px', fontWeight: 600, color: '#e2e8f0' }}>Risk Factors Detected by AI:</p>
           <ul style={{ margin: 0, paddingLeft: '24px', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '0.95rem' }}>
-            <li>Vendor location is within a restricted jurisdiction <span style={{color:'#ef4444'}}>(Risk Tier 2)</span>.</li>
-            <li>Ultimate Beneficial Owner (UBO) verification data is inconclusive.</li>
+            {riskReasons.length > 0 ? (
+              riskReasons.map((reason, idx) => (
+                <li key={idx}>
+                  <span style={{ color: '#ef4444' }}>{reason}</span>
+                </li>
+              ))
+            ) : (
+              <>
+                <li>Vendor location is within a restricted jurisdiction <span style={{color:'#ef4444'}}>(Risk Tier 2)</span>.</li>
+                <li>Ultimate Beneficial Owner (UBO) verification data is inconclusive.</li>
+              </>
+            )}
           </ul>
         </div>
 
